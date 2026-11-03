@@ -19,7 +19,7 @@ def health():
 # and the user explicitly selecting the expressive engine.
 EXPRESSIVE_STYLES = {
     "neutral": "general", "sombre": "sad", "empathetic": "friendly",
-    "serious": "newscast", "urgent": "newscast", "reflective": "calm",
+    "serious": "newscast", "urgent": "newscast", "reflective": "general",
     "uplifting": "hopeful",
 }
 
@@ -48,14 +48,14 @@ def synthesize():
     style = EXPRESSIVE_STYLES[tone] if intensity else "general"
     style_degree = 1 + intensity / 100
     voice = "en-US-JennyNeural"
-    # Azure styles vary by voice; Jenny supports sad, friendly, newscast,
-    # hopeful and calm. Invalid styles are returned as upstream errors.
+    # Jenny supports sad, friendly, newscast and hopeful. Neutral and reflective use unstyled narration.
     escaped = html.escape(text, quote=False)
-    content = (f'<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" '
+    style_open = (f'<mstts:express-as style="{style}" styledegree="{style_degree:.2f}">' if style != "general" else "")
+    style_close = '</mstts:express-as>' if style != "general" else ""
+    content = (f'<speak version="1.0"' xmlns="http://www.w3.org/2001/10/synthesis" '
                f'xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="en-US">'
-               f'<voice name="{voice}"><mstts:express-as style="{style}" '
-               f'styledegree="{style_degree:.2f}"><prosody rate="{(rate-1)*100:+.0f}%">'
-               f'{escaped}</prosody></mstts:express-as></voice></speak>')
+               f'<voice name="{voice}">{style_open}<prosody rate="{(rate-1)*100:+.0f}%">'
+               f'{escaped}</prosody>{style_close}</voice></speak>')
     region = os.environ["AZURE_SPEECH_REGION"]
     if not re.fullmatch(r"[a-z0-9-]{2,40}", region):
         return jsonify(error="Speech region configuration is invalid."), 503
