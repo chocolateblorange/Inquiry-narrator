@@ -44,19 +44,24 @@ def synthesize():
         rate = max(.7, min(1.4, float(data.get("rate", 1))))
     except (ValueError, TypeError):
         return jsonify(error="Invalid speech settings."), 400
-    # At 0% intensity, style is disabled. The text is never rewritten.
-    style = EXPRESSIVE_STYLES[tone] if intensity else "general"
-    style_degree = 1 + intensity / 100
-    voice = "en-GB-RyanNeural"
-    # Jenny supports sad, friendly, newscast and hopeful. Neutral and reflective use unstyled narration.
+    # British male neural narration. Ryan does not support every Azure express-as
+    # style, so use broadly supported SSML prosody rather than unsupported styles.
+    # Keep contextual instructions and the author's words intact.
+    strength = intensity / 100.0
+    tone_adjustments = {
+        "neutral": (0, 0), "sombre": (-9, -3),
+        "empathetic": (-4, 0), "serious": (-3, -2),
+        "urgent": (5, 1), "reflective": (-6, -1),
+        "uplifting": (2, 1),
+    }
+    rate_shift, pitch_shift = tone_adjustments[tone]
+    effective_rate = max(0.78, min(1.2, rate * (1 + rate_shift * strength / 100)))
+    effective_pitch = pitch_shift * strength
     escaped = html.escape(text, quote=False)
-    # Preserve style instructions; Azure support varies by voice and style.
-    style_open = (f'<mstts:express-as style="{style}" styledegree="{style_degree:.2f}">' if style != "general" else "")
-    style_close = "</mstts:express-as>" if style != "general" else ""
-    content = (f'<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" '
-               f'xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="en-GB">'
-               f'<voice name="{voice}">{style_open}<prosody rate="{(rate-1)*100:+.0f}%">'
-               f'{escaped}</prosody>{style_close}</voice></speak>')
+    content = (f'<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-GB">'
+               f'<voice name="en-GB-RyanNeural">'
+               f'<prosody rate="{(effective_rate-1)*100:+.0f}%" pitch="{effective_pitch:+.1f}%">'
+               f'{escaped}</prosody></voice></speak>')
     region = os.environ["AZURE_SPEECH_REGION"]
     if not re.fullmatch(r"[a-z0-9-]{2,40}", region):
         return jsonify(error="Speech region configuration is invalid."), 503
@@ -65,7 +70,7 @@ def synthesize():
         data=content.encode("utf-8"),
         headers={"Ocp-Apim-Subscription-Key": os.environ["AZURE_SPEECH_KEY"],
                  "Content-Type": "application/ssml+xml",
-                 "X-Microsoft-OutputFormat": "audio-16khz-64kbitrate-mono-mp3",
+                 "X-Microsoft-OutputFormat": "audio-24khz-96kbitrate-mono-mp3",
                  "User-Agent": "ACCESSIRATE"},
         method="POST")
     try:
