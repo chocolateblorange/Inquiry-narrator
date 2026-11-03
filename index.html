@@ -2,14 +2,33 @@
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ACCESSI(RATE)</title><style>
 :root{font-family:system-ui,sans-serif;color:#e8e9ef;background:#10131c}body{margin:0}main{max-width:860px;margin:48px auto;padding:0 22px}h1{font-size:clamp(2rem,5vw,3.5rem);margin-bottom:8px}.muted{color:#a8adbe}section{background:#1b2030;border:1px solid #343b50;border-radius:18px;padding:24px;margin:24px 0}button,input,select{font:inherit}button{background:#d4b77c;color:#17191f;border:0;border-radius:9px;padding:11px 16px;cursor:pointer;margin:5px 5px 5px 0}button:disabled{opacity:.45}select,input[type=range]{max-width:100%}#reading{max-height:360px;overflow:auto;line-height:1.7;white-space:pre-wrap}label{display:block;margin:12px 0}.error{color:#ffb5b5}
-</style></head><body><main><h1>ACCESSI(RATE)</h1><p class="muted">Accessible, authentic narration of complex documents. Designed to help neurodivergent people and people with disabilities access the same quality of information as everyone else, in alternative formats that work for them. Our goal is real, professionally licensed human voices for natural, trustworthy presentation.</p>
+</style></head><body><main><h1>ACCESSI(RATE)</h1><p class="muted">Accessible, authentic narration of complex documents. Designed to help neurodivergent people and people with disabilities access the same quality of information as everyone else, in alternative formats that work for them. Our goal is narration that respects the meaning, context and emotional weight of the written word.</p>
 <section><h2>1. Upload your PDF</h2><input id="file" type="file" accept=".pdf,application/pdf"><button id="upload">Extract text</button><p id="status" class="muted">Up to 100 MB. Text-based PDFs only in this MVP.</p></section>
 <section><h2>2. Listen</h2><label>Voice <select id="voice"></select></label><p id="voiceNote" class="muted"></p><label>Speed <input id="speed" type="range" min="0.7" max="1.4" step=".05" value=".85"><span id="speedValue">0.85×</span></label>
-<p class="muted">Default: measured documentary delivery for serious reports. Voice tone still depends on the voice installed on your device.</p><label>Natural pacing <input id="pacing" type="range" min="0" max="2" step=".25" value="1.35"><span id="pacingValue">1.35×</span></label><button id="play" disabled>Play</button><button id="pause" disabled>Pause / Resume</button><button id="stop" disabled>Stop</button>
+<label>Emotional tone <select id="tone"><option value="auto">Automatic — interpret context</option><option value="neutral">Neutral</option><option value="sombre">Sombre</option><option value="empathetic">Empathetic</option><option value="serious">Serious</option><option value="urgent">Urgent</option><option value="reflective">Reflective</option><option value="uplifting">Uplifting</option></select></label><label>Emotional intensity <input id="intensity" type="range" min="0" max="100" step="5" value="35"><span id="intensityValue">35% — moderate</span></label><p id="toneNote" class="muted" aria-live="polite">Automatic mode uses restrained, contextual delivery. Your device's speech engine determines how expressive the result can be.</p><label>Natural pacing <input id="pacing" type="range" min="0" max="2" step=".25" value="1.35"><span id="pacingValue">1.35×</span></label><button id="play" disabled>Play</button><button id="pause" disabled>Pause / Resume</button><button id="stop" disabled>Stop</button>
 <p id="progress" class="muted"></p><div id="reading"></div></section>
-<p class="muted">Natural pacing adds sentence-aware pauses and paragraph breaks, but voice expressiveness still depends on your device. Current MVP uses voices supplied by your browser or operating system while professional human-voice licensing is explored. No actor's voice is cloned. Text is processed in memory and not deliberately stored on the server. Browser speech support varies by device.</p></main>
+<p class="muted">Natural pacing adds sentence-aware pauses and paragraph breaks, but voice expressiveness still depends on your device. Current MVP uses voices supplied by your browser or operating system without cloning any actor's voice. Text is processed in memory and not deliberately stored on the server. Browser speech support varies by device.</p></main>
 <script>
-const $=id=>document.getElementById(id);let pages=[],chunks=[],index=0,voices=[],playing=false,paused=false,runId=0,pendingTimer=null;
+const $=id=>document.getElementById(id);
+const toneProfiles={neutral:{rate:1,pitch:1,pace:1},sombre:{rate:.91,pitch:.94,pace:1.22},empathetic:{rate:.95,pitch:1.035,pace:1.14},serious:{rate:.94,pitch:.97,pace:1.13},urgent:{rate:1.09,pitch:1.025,pace:.8},reflective:{rate:.92,pitch:.99,pace:1.25},uplifting:{rate:1.045,pitch:1.055,pace:.95}};
+function contextualTone(text){
+ const t=text.toLowerCase();
+ if(/\b(died|deaths?|fatalit(?:y|ies)|bereave(?:d|ment)|grief|loss of life|unnecessarily|tragedy|victims?)\b/.test(t))return 'sombre';
+ if(/\b(survivors?|families|suffering|distress|trauma|vulnerable|care|compassion)\b/.test(t))return 'empathetic';
+ if(/\b(immediately|urgent|emergency|imminent|evacuate|warning|critical risk)\b/.test(t))return 'urgent';
+ if(/\b(reflect(?:ion|ed|ing)?|remember|consider|in retrospect|lessons learned)\b/.test(t))return 'reflective';
+ if(/\b(progress|improved|achievement|hope|recovery|success)\b/.test(t))return 'uplifting';
+ return 'serious';
+}
+function delivery(segment){
+ const selected=$('tone').value;
+ const tone=selected==='auto'?contextualTone(segment.text):selected;
+ const profile=toneProfiles[tone]||toneProfiles.neutral;
+ const strength=Number($('intensity').value)/100;
+ const mix=value=>1+(value-1)*strength;
+ return {tone,rate:Math.max(.6,Math.min(1.6,Number($('speed').value)*mix(profile.rate))),pitch:Math.max(.7,Math.min(1.3,.98*mix(profile.pitch))),pace:mix(profile.pace)};
+}
+let pages=[],chunks=[],index=0,voices=[],playing=false,paused=false,runId=0,pendingTimer=null;
 function splitText(s){
   // Preserve paragraph and list boundaries instead of flattening the document into one breath.
   const out=[];
@@ -36,7 +55,7 @@ function splitText(s){
 }
 function loadVoices(){voices=speechSynthesis.getVoices();$('voice').replaceChildren(...voices.map((v,i)=>{let o=document.createElement('option');o.value=i;o.textContent=v.name+' ('+v.lang+')';return o}));const maleNames=/\\b(daniel|george|oliver|arthur|ryan|james|thomas|william|alfie|edward|harry|david|mark|brian|guy|richard|matthew|en-gb-x-rjs|male)\\b/i;let preferred=voices.findIndex(v=>/^en[-_]US/i.test(v.lang)&&maleNames.test(v.name));if(preferred<0)preferred=voices.findIndex(v=>/^en/i.test(v.lang)&&maleNames.test(v.name));if(preferred<0)preferred=voices.findIndex(v=>/^en[-_]US/i.test(v.lang));if(preferred>=0)$('voice').value=preferred;$('voiceNote').textContent=voices.some(v=>/^en/i.test(v.lang)&&maleNames.test(v.name))?'A male-sounding English voice is preferred when available. Try the voice list to compare.':'Your browser has not identified a male English voice. The available voices are controlled by your device.'}
 if('speechSynthesis'in window){loadVoices();speechSynthesis.onvoiceschanged=loadVoices}else $('status').textContent='This browser does not support speech synthesis.';
-$('speed').oninput=()=>$('speedValue').textContent=$('speed').value+'×';$('pacing').oninput=()=>$('pacingValue').textContent=$('pacing').value+'×';
+$('intensity').oninput=()=>{$('intensityValue').textContent=$('intensity').value+'% — '+(Number($('intensity').value)<30?'subtle':Number($('intensity').value)<70?'moderate':'expressive')};$('tone').onchange=()=>{$('toneNote').textContent=$('tone').value==='auto'?'Automatic mode interprets each segment conservatively from its wording.':'Selected tone adjusts delivery, not the words. Expressiveness varies by device.'};$('speed').oninput=()=>$('speedValue').textContent=$('speed').value+'×';$('pacing').oninput=()=>$('pacingValue').textContent=$('pacing').value+'×';
 $('upload').onclick=async()=>{let f=$('file').files[0];if(!f)return;$('status').textContent='Extracting pages…';$('upload').disabled=true;stop();
 try{let form=new FormData();form.append('pdf',f);let res=await fetch('/extract',{method:'POST',body:form});let data=await res.json();if(!res.ok)throw Error(data.error);pages=data.pages;chunks=pages.flatMap(p=>splitText(p.text).map(segment=>({...segment,page:p.number})));index=0;$('status').textContent=`${data.title}: ${data.page_count} pages, ${chunks.length} speech segments ready.`;$('reading').textContent=pages.slice(0,2).map(p=>'Page '+p.number+'\n'+p.text).join('\n\n');$('play').disabled=!chunks.length;$('stop').disabled=!chunks.length;$('pause').disabled=!chunks.length;update()}catch(e){$('status').textContent=e.message;$('status').className='error'}finally{$('upload').disabled=false}};
 function update(){$('progress').textContent=chunks.length?`Segment ${Math.min(index+1,chunks.length)} of ${chunks.length} · Page ${chunks[Math.min(index,chunks.length-1)].page}`:''}
@@ -44,13 +63,14 @@ function speak(token=runId){
  if(!playing||token!==runId||index>=chunks.length){if(index>=chunks.length)playing=false;return}
  const segment=chunks[index],u=new SpeechSynthesisUtterance(segment.text);
  u.voice=voices[+$('voice').value]||null;
- u.rate=+$('speed').value;
- u.pitch=0.88;
+ const style=delivery(segment);
+ u.rate=style.rate;
+ u.pitch=style.pitch;
  u.onend=()=>{
    if(!playing||token!==runId)return;
    index++;update();
    if(index>=chunks.length){playing=false;return}
-   const wait=Math.round((segment.pause||200)*Number($('pacing').value));
+   const wait=Math.round((segment.pause||200)*Number($('pacing').value)*style.pace);
    pendingTimer=setTimeout(()=>{pendingTimer=null;if(playing&&token===runId){if(paused){pendingTimer=setTimeout(()=>speak(token),200)}else speak(token)}},wait);
  };
  u.onerror=e=>{if(token===runId&&e.error!=='interrupted'&&e.error!=='canceled'){playing=false;$('progress').textContent='Speech interrupted: '+e.error}};
