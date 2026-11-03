@@ -5,21 +5,60 @@
 </style></head><body><main><h1>ACCESSI(RATE)</h1><p class="muted">Accessible, authentic narration of complex documents. Designed to help neurodivergent people and people with disabilities access the same quality of information as everyone else, in alternative formats that work for them. Our goal is real, professionally licensed human voices for natural, trustworthy presentation.</p>
 <section><h2>1. Upload your PDF</h2><input id="file" type="file" accept=".pdf,application/pdf"><button id="upload">Extract text</button><p id="status" class="muted">Up to 100 MB. Text-based PDFs only in this MVP.</p></section>
 <section><h2>2. Listen</h2><label>Voice <select id="voice"></select></label><p id="voiceNote" class="muted"></p><label>Speed <input id="speed" type="range" min="0.7" max="1.4" step=".05" value=".95"><span id="speedValue">0.95×</span></label>
-<button id="play" disabled>Play</button><button id="pause" disabled>Pause / Resume</button><button id="stop" disabled>Stop</button>
+<label>Natural pacing <input id="pacing" type="range" min="0" max="2" step=".25" value="1"><span id="pacingValue">1×</span></label><button id="play" disabled>Play</button><button id="pause" disabled>Pause / Resume</button><button id="stop" disabled>Stop</button>
 <p id="progress" class="muted"></p><div id="reading"></div></section>
-<p class="muted">Current MVP uses voices supplied by your browser or operating system while professional human-voice licensing is explored. No actor's voice is cloned. Text is processed in memory and not deliberately stored on the server. Browser speech support varies by device.</p></main>
+<p class="muted">Natural pacing adds sentence-aware pauses and paragraph breaks, but voice expressiveness still depends on your device. Current MVP uses voices supplied by your browser or operating system while professional human-voice licensing is explored. No actor's voice is cloned. Text is processed in memory and not deliberately stored on the server. Browser speech support varies by device.</p></main>
 <script>
-const $=id=>document.getElementById(id);let pages=[],chunks=[],index=0,voices=[],playing=false,paused=false;
-function splitText(s){let out=[];for(let p of s.match(/[^.!?]+[.!?]+|[^.!?]+$/g)||[s]){p=p.trim();while(p.length>220){let cut=p.lastIndexOf(' ',220);if(cut<70)cut=220;out.push(p.slice(0,cut));p=p.slice(cut).trim()}if(p)out.push(p)}return out}
+const $=id=>document.getElementById(id);let pages=[],chunks=[],index=0,voices=[],playing=false,paused=false,runId=0,pendingTimer=null;
+function splitText(s){
+  // Preserve paragraph and list boundaries instead of flattening the document into one breath.
+  const out=[];
+  const paragraphs=s.replace(/\r/g,'').split(/\n\s*\n|(?<=[:;])\n/);
+  for(const raw of paragraphs){
+    const paragraph=raw.replace(/\s*\n\s*/g,' ').replace(/\s+/g,' ').trim();
+    if(!paragraph)continue;
+    // Sentence-aware segmentation, with common abbreviations protected.
+    const protectedText=paragraph.replace(/\b(Mr|Mrs|Ms|Dr|Prof|St|vs|etc|e\.g|i\.e)\./gi,m=>m.replace(/\./g,'∯'));
+    const sentences=protectedText.match(/[^.!?]+(?:[.!?]+(?:["'”’)]*)|$)/g)||[protectedText];
+    for(let sentence of sentences){
+      sentence=sentence.replace(/∯/g,'.').trim();
+      while(sentence.length>230){
+        let cut=sentence.lastIndexOf(' ',230);
+        if(cut<90)cut=230;
+        out.push({text:sentence.slice(0,cut).trim(),pause:130});
+        sentence=sentence.slice(cut).trim();
+      }
+      if(sentence)out.push({text:sentence,pause:/[?!]["'”’)]*$/.test(sentence)?420:/[:;]["'”’)]*$/.test(sentence)?330:230});
+    }
+    if(out.length)out[out.length-1].pause=650;
+  }
+  return out;
+}
 function loadVoices(){voices=speechSynthesis.getVoices();$('voice').replaceChildren(...voices.map((v,i)=>{let o=document.createElement('option');o.value=i;o.textContent=v.name+' ('+v.lang+')';return o}));const maleNames=/\\b(daniel|george|oliver|arthur|ryan|james|thomas|william|alfie|edward|harry|david|mark|brian|guy|richard|matthew|en-gb-x-rjs|male)\\b/i;let preferred=voices.findIndex(v=>/^en[-_]US/i.test(v.lang)&&maleNames.test(v.name));if(preferred<0)preferred=voices.findIndex(v=>/^en/i.test(v.lang)&&maleNames.test(v.name));if(preferred<0)preferred=voices.findIndex(v=>/^en[-_]US/i.test(v.lang));if(preferred>=0)$('voice').value=preferred;$('voiceNote').textContent=voices.some(v=>/^en/i.test(v.lang)&&maleNames.test(v.name))?'A male-sounding English voice is preferred when available. Try the voice list to compare.':'Your browser has not identified a male English voice. The available voices are controlled by your device.'}
 if('speechSynthesis'in window){loadVoices();speechSynthesis.onvoiceschanged=loadVoices}else $('status').textContent='This browser does not support speech synthesis.';
-$('speed').oninput=()=>$('speedValue').textContent=$('speed').value+'×';
+$('speed').oninput=()=>$('speedValue').textContent=$('speed').value+'×';$('pacing').oninput=()=>$('pacingValue').textContent=$('pacing').value+'×';
 $('upload').onclick=async()=>{let f=$('file').files[0];if(!f)return;$('status').textContent='Extracting pages…';$('upload').disabled=true;stop();
-try{let form=new FormData();form.append('pdf',f);let res=await fetch('/extract',{method:'POST',body:form});let data=await res.json();if(!res.ok)throw Error(data.error);pages=data.pages;chunks=pages.flatMap(p=>splitText(p.text).map(text=>({text,page:p.number})));index=0;$('status').textContent=`${data.title}: ${data.page_count} pages, ${chunks.length} speech segments ready.`;$('reading').textContent=pages.slice(0,2).map(p=>'Page '+p.number+'\n'+p.text).join('\n\n');$('play').disabled=!chunks.length;$('stop').disabled=!chunks.length;$('pause').disabled=!chunks.length;update()}catch(e){$('status').textContent=e.message;$('status').className='error'}finally{$('upload').disabled=false}};
+try{let form=new FormData();form.append('pdf',f);let res=await fetch('/extract',{method:'POST',body:form});let data=await res.json();if(!res.ok)throw Error(data.error);pages=data.pages;chunks=pages.flatMap(p=>splitText(p.text).map(segment=>({...segment,page:p.number})));index=0;$('status').textContent=`${data.title}: ${data.page_count} pages, ${chunks.length} speech segments ready.`;$('reading').textContent=pages.slice(0,2).map(p=>'Page '+p.number+'\n'+p.text).join('\n\n');$('play').disabled=!chunks.length;$('stop').disabled=!chunks.length;$('pause').disabled=!chunks.length;update()}catch(e){$('status').textContent=e.message;$('status').className='error'}finally{$('upload').disabled=false}};
 function update(){$('progress').textContent=chunks.length?`Segment ${Math.min(index+1,chunks.length)} of ${chunks.length} · Page ${chunks[Math.min(index,chunks.length-1)].page}`:''}
-function speak(){if(!playing||index>=chunks.length){playing=false;return}let u=new SpeechSynthesisUtterance(chunks[index].text);u.voice=voices[+$('voice').value]||null;u.rate=+$('speed').value;u.onend=()=>{if(playing){index++;update();speak()}};u.onerror=e=>{if(e.error!=='interrupted'){playing=false;$('progress').textContent='Speech interrupted: '+e.error}};update();speechSynthesis.speak(u)}
-function stop(){if('speechSynthesis'in window)speechSynthesis.cancel();playing=false;paused=false}
+function speak(token=runId){
+ if(!playing||token!==runId||index>=chunks.length){if(index>=chunks.length)playing=false;return}
+ const segment=chunks[index],u=new SpeechSynthesisUtterance(segment.text);
+ u.voice=voices[+$('voice').value]||null;
+ u.rate=+$('speed').value;
+ u.pitch=1;
+ u.onend=()=>{
+   if(!playing||token!==runId)return;
+   index++;update();
+   if(index>=chunks.length){playing=false;return}
+   const wait=Math.round((segment.pause||200)*Number($('pacing').value));
+   pendingTimer=setTimeout(()=>{pendingTimer=null;if(playing&&token===runId){if(paused){pendingTimer=setTimeout(()=>speak(token),200)}else speak(token)}},wait);
+ };
+ u.onerror=e=>{if(token===runId&&e.error!=='interrupted'&&e.error!=='canceled'){playing=false;$('progress').textContent='Speech interrupted: '+e.error}};
+ update();speechSynthesis.speak(u);
+}
+function stop(){runId++;if(pendingTimer!==null){clearTimeout(pendingTimer);pendingTimer=null}if('speechSynthesis'in window)speechSynthesis.cancel();playing=false;paused=false}
+
 $('play').onclick=()=>{stop();if(index>=chunks.length)index=0;playing=true;speak()};
-$('pause').onclick=()=>{if(!playing)return;if(paused){speechSynthesis.resume();paused=false}else{speechSynthesis.pause();paused=true}};
+$('pause').onclick=()=>{if(!playing)return;if(paused){speechSynthesis.resume();paused=false;if(pendingTimer!==null){clearTimeout(pendingTimer);pendingTimer=null;speak(runId)}}else{speechSynthesis.pause();paused=true}};
 $('stop').onclick=()=>{stop();index=0;update()};
 </script></body></html>
