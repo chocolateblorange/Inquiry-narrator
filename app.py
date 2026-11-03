@@ -97,12 +97,12 @@ def narration_text(page):
         y = block["bbox"][1]
         # Only remove plausible footnote material in the lower page margin.
         if y > height * .78 and avg_size <= 9.5 and re.match(
-            r"^(?:\\[?\\d+\\]?|\\d+[.)]|[*†‡]|https?://|www\\.|ibid\\b|op\\.\\s*cit\\.)", text, re.I
+            r"^(?:\[?\d+\]?|\d+[.)]|[*†‡]|https?://|www\.|ibid\b|op\.\s*cit\.)", text, re.I
         ):
             skipped += 1
             continue
         body.append(text)
-    return "\\n\\n".join(body), skipped
+    return "\n\n".join(body), skipped
 
 
 @app.post("/extract")
