@@ -52,7 +52,7 @@ def synthesize():
     escaped = html.escape(text, quote=False)
     style_open = (f'<mstts:express-as style="{style}" styledegree="{style_degree:.2f}">' if style != "general" else "")
     style_close = '</mstts:express-as>' if style != "general" else ""
-    content = (f'<speak version="1.0"' xmlns="http://www.w3.org/2001/10/synthesis" '
+    content = (f'<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" '
                f'xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="en-US">'
                f'<voice name="{voice}">{style_open}<prosody rate="{(rate-1)*100:+.0f}%">'
                f'{escaped}</prosody>{style_close}</voice></speak>')
