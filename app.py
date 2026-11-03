@@ -2,7 +2,7 @@ import os, re
 from flask import Flask, render_template, request, jsonify
 import fitz
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder=".")
 app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024
 
 @app.get("/")
@@ -24,7 +24,7 @@ def extract():
             return jsonify(error="Password-protected PDFs are not supported."), 400
         pages = []
         for i, page in enumerate(doc):
-            content = re.sub(r"\\s+", " ", page.get_text("text")).strip()
+            content = re.sub(r"\s+", " ", page.get_text("text")).strip()
             if content:
                 pages.append({"number": i + 1, "text": content})
         if not pages:
