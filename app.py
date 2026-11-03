@@ -80,6 +80,31 @@ def synthesize():
     except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError):
         return jsonify(error="Expressive speech service unavailable. Switch to device voice."), 502
 
+def narration_text(page):
+    """Conservatively omit small bottom-of-page notes, keeping the PDF unchanged."""
+    height = page.rect.height
+    body = []
+    skipped = 0
+    for block in page.get_text("dict").get("blocks", []):
+        if "lines" not in block:
+            continue
+        lines = block["lines"]
+        text = " ".join(span.get("text", "") for line in lines for span in line.get("spans", [])).strip()
+        if not text:
+            continue
+        sizes = [span.get("size", 12) for line in lines for span in line.get("spans", []) if span.get("text", "").strip()]
+        avg_size = sum(sizes) / len(sizes) if sizes else 12
+        y = block["bbox"][1]
+        # Only remove plausible footnote material in the lower page margin.
+        if y > height * .78 and avg_size <= 9.5 and re.match(
+            r"^(?:\\[?\\d+\\]?|\\d+[.)]|[*†‡]|https?://|www\\.|ibid\\b|op\\.\\s*cit\\.)", text, re.I
+        ):
+            skipped += 1
+            continue
+        body.append(text)
+    return "\\n\\n".join(body), skipped
+
+
 @app.post("/extract")
 def extract():
     f = request.files.get("pdf")
@@ -90,13 +115,15 @@ def extract():
         if doc.needs_pass:
             return jsonify(error="Password-protected PDFs are not supported."), 400
         pages = []
+        skipped_notes = 0
+        skip_references = request.form.get("skip_references", "true") == "true"
         for i, page in enumerate(doc):
             content = re.sub(r"\s+", " ", page.get_text("text")).strip()
             if content:
                 pages.append({"number": i + 1, "text": content})
         if not pages:
             return jsonify(error="No selectable text found. Scanned PDFs require OCR, which is not yet supported."), 422
-        return jsonify(title=f.filename, page_count=len(doc), pages=pages)
+        return jsonify(title=f.filename, page_count=len(doc), pages=pages, skipped_notes=skipped_notes)
     except Exception:
         return jsonify(error="Could not read this PDF."), 422
 
